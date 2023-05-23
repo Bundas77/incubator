@@ -24,6 +24,7 @@ esphome:
   #              format: "Not using decryption key. If you need to set a key use Home Assistant service 'ESPHome:  ${device_name}_set_dsmr_key'"
   
 
+
 wifi:
   ssid: "Your WiFi SSID"
   password: "Your WiFi Password"
@@ -34,14 +35,12 @@ ap:
   password: "ms13aBnebMlt"
 
 
-
-
-
 # Enable the necessary components
 api:
+  encryption:
+    key: "c9XrrWouyrkulX3OXNfrmbj+p2zqyaHkHEntldZAyDU="
 
 ota:
-
 dashboard_import:
   package_import_url: github://Bundas77/incubator/incubator.yaml@main
   import_full_config: true
