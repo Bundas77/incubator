@@ -48,6 +48,9 @@ dashboard_import:
 
 logger:
 
+time:
+  - platform: homeassistant
+    id: homeassistant_time 
 
 # Enable I2C for SSD1306 OLED display
 i2c:
