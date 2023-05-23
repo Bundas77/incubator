@@ -1,15 +1,198 @@
-substitutions:
-  name: Incubator
-packages:
-  Bundas.incubator: github://Bundas/dsmr/incubator.yaml@main
 esphome:
-  name: ${name}
-  name_add_mac_suffix: false
-api:
-  encryption:
-    key: gbIw+11CXNZT20aPN6D2WVTjaJg6R0S8tdW/LBlKeSE=
-
+  name: chicken_incubator
+  platform: ESP32
+  board: nodemcu-32s
 
 wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
+  ssid: "Your WiFi SSID"
+  password: "Your WiFi Password"
+
+# Enable the necessary components
+api:
+ota:
+logger:
+
+# Enable I2C for SSD1306 OLED display
+i2c:
+  sda: 21
+  scl: 22
+
+# Enable OneWire for DS18B20 temperature sensors
+one_wire:
+  - pin: 4  # GPIO4
+
+# Enable sensors
+sensor:
+  - platform: dallas
+    address: 0x123456789ABC  # Replace with your actual sensor address
+    name: "Egg Temperature"
+    onewire_id: one_wire_bus
+    filters:
+      - calibrate_linear:
+          - 0.0 -> 0.0
+          - 1.0 -> 1.0  # Adjust calibration values as needed
+
+  - platform: bme280
+    temperature:
+      name: "Ambient Temperature"
+      filters:
+        - calibrate_linear:
+            - 0.0 -> 0.0
+            - 1.0 -> 1.0  # Adjust calibration values as needed
+    humidity:
+      name: "Ambient Humidity"
+      filters:
+        - calibrate_linear:
+            - 0.0 -> 0.0
+            - 1.0 -> 1.0  # Adjust calibration values as needed
+    pressure:
+      name: "Ambient Pressure"
+      filters:
+        - calibrate_linear:
+            - 0.0 -> 0.0
+            - 1.0 -> 1.0  # Adjust calibration values as needed
+
+# Enable switches
+switch:
+  - platform: gpio
+    pin: 12  # GPIO12
+    name: "Heating Relay"
+
+  - platform: gpio
+    pin: 13  # GPIO13
+    name: "Fan"
+
+# Enable servo
+output:
+  - platform: ledc
+    id: servo_pwm
+    pin: GPIO14
+    frequency: 50 Hz
+
+  - platform: servo
+    id: servo
+    output: servo_pwm
+    min_level: 5%
+    max_level: 10%
+    idle_level: 7.5%
+
+# Enable display
+display:
+  - platform: ssd1306_i2c
+    model: "SSD1306 128x64"
+    address: 0x3C
+    id: display
+    pages:
+      - id: page1
+        lambda: |-
+          it.set_font("Roboto-Regular.ttf", 10);
+          it.printf(0, 0, id(font), "Days Left: %d", id(days_left).state);
+      - id: page2
+        lambda: |-
+          it.set_font("Roboto-Regular.ttf", 10);
+          it.printf(0, 0, id(font), "Egg Temp: %.1f C", id(egg_temp).state);
+      - id: page3
+        lambda: |-
+          it.set_font("Roboto-Regular.ttf", 10);
+          it.printf(0, 0, id(font), "Ambient Temp: %.1f C", id(ambient_temp).state);
+      - id: page4
+        lambda: |-
+          it.set_font("Roboto-Regular.ttf", 10);
+          it.printf(0, 0, id(font), "Ambient Humidity: %.1f %%", id(ambient_humidity).state);
+      - id: page5
+        lambda: |-
+          it.set_font("Roboto-Regular.ttf", 10);
+          it.printf(0, 0, id(font), "Ambient Pressure: %.1f hPa", id(ambient_pressure).state);
+      - id: page6
+        lambda: |-
+          it.set_font("Roboto-Regular.ttf", 10);
+          it.print(0, 0, id(font), id(scrolling_text).state.c_str());
+    interval: 4s
+
+font:
+  - file: "Roboto-Regular.ttf"
+    id: font
+    size: 10
+
+# Set up countdown timer
+sensor:
+  - platform: time
+    id: current_time
+    on_value_range:
+      - if:
+          condition:
+            and:
+              - lambda: return x.days >= 0
+              - lambda: return x.days <= 21
+          then:
+            - lambda: id(days_left) = 21 - id(current_time).days
+
+# Button for turning eggs
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: 0
+      mode: INPUT_PULLUP
+      inverted: True
+    name: "Egg Turn Button"
+    on_press:
+      then:
+        - servo.write_angle:
+            id: servo
+            angle: 90°
+        - delay: 500ms
+        - servo.write_angle:
+            id: servo
+            angle: 0°
+
+# Reminder for adding water
+sensor:
+  - platform: template
+    name: "Water Reminder"
+    lambda: |-
+      if (id(ambient_humidity).state < 50.0) {
+        return "Add Water!";
+      } else {
+        return "";
+      }
+
+# Temperature, humidity, and pressure calibration settings in Home Assistant
+homeassistant:
+  temperature:
+    - name: "Incubator Temperature"
+      id: temp_calibration
+    - name: "Ambient Temperature"
+      id: ambient_temp_calibration
+  humidity:
+    - name: "Ambient Humidity"
+      id: humidity_calibration
+  pressure:
+    - name: "Ambient Pressure"
+      id: pressure_calibration
+
+# Adjust temperature control based on the stage of incubation
+interval:
+  - interval: 10s
+    then:
+      - if:
+          condition:
+            lambda: return id(days_left) <= 5
+          then:
+            - switch.turn_on: heating_relay
+            - if:
+                condition:
+                  lambda: return id(egg_temp).state > 37.0
+                then:
+                  - switch.turn_on: fan
+                else:
+                  - switch.turn_off: fan
+          else:
+            - if:
+                condition:
+                  lambda: return id(egg_temp).state > 38.0
+                then:
+                  - switch.turn_on: fan
+                  - switch.turn_off: heating_relay
+                else:
+                  - switch.turn_on: heating_relay
+                  - switch.turn_off: fan
