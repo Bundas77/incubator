@@ -1,16 +1,54 @@
+substitutions:
+  device_name: slimmelezer
+
 esphome:
-  name: chicken_incubator
+  name: ${device_name}
   platform: ESP32
   board: nodemcu-32s
+  name_add_mac_suffix: false
+  project:
+    name: Bundas.incubator
+    version: "1.0"
+  #on_boot:
+  #  then:
+  #    - if:
+  #        condition:
+  #          lambda: return id(has_key);
+  #        then:
+  #          - lambda: |-
+  #              std::string key(id(stored_decryption_key), 32);
+  #              id(dsmr_instance).set_decryption_key(key);
+  #        else:
+  #          - logger.log:
+  #              level: info
+  #              format: "Not using decryption key. If you need to set a key use Home Assistant service 'ESPHome:  ${device_name}_set_dsmr_key'"
+  
 
 wifi:
   ssid: "Your WiFi SSID"
   password: "Your WiFi Password"
+  
+# Enable fallback hotspot (captive portal) in case wifi connection fails 
+ap:
+  ssid: "Incubator Fallback Hotspot"
+  password: "ms13aBnebMlt"
+
+
+
+
 
 # Enable the necessary components
 api:
+
 ota:
+
+dashboard_import:
+  package_import_url: github://Bundas77/incubator/incubator.yaml@main
+  import_full_config: true
+
+
 logger:
+
 
 # Enable I2C for SSD1306 OLED display
 i2c:
@@ -34,13 +72,13 @@ sensor:
 
   - platform: bme280
     temperature:
-      name: "Ambient Temperature"
+      name: "Incubator Temperature"
       filters:
         - calibrate_linear:
             - 0.0 -> 0.0
             - 1.0 -> 1.0  # Adjust calibration values as needed
     humidity:
-      name: "Ambient Humidity"
+      name: "Incubator Humidity"
       filters:
         - calibrate_linear:
             - 0.0 -> 0.0
