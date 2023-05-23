@@ -1,5 +1,5 @@
 substitutions:
-  device_name: slimmelezer
+  device_name: incubator
 
 esphome:
   name: ${device_name}
