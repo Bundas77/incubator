@@ -1,0 +1,15 @@
+substitutions:
+  name: Incubator
+packages:
+  Bundas.incubator: github://Bundas/dsmr/incubator.yaml@main
+esphome:
+  name: ${name}
+  name_add_mac_suffix: false
+api:
+  encryption:
+    key: gbIw+11CXNZT20aPN6D2WVTjaJg6R0S8tdW/LBlKeSE=
+
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
