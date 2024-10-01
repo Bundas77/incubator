@@ -82,6 +82,7 @@ captive_portal:
 i2c:
   sda: $sda_pin
   scl: $scl_pin
+
 # Enable OneWire for DS18B20 temperature sensors
 one_wire:
   - platform: gpio
