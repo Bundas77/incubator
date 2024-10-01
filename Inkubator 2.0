@@ -1,0 +1,271 @@
+substitutions:
+#  name: incubator
+
+#packages:
+#  Bundas77.incubator: github://Bundas77/incubator/incubator.yaml@main
+
+  devicename: incubator
+  
+  buzzer_pin: GPIO16 #alarm
+  dallas_pin: GPIO26 # dalla 18b20 temp one wire
+  scl_pin: GPIO22 
+  sda_pin: GPIO21 
+  servo_pin: GPIO17 #Servo controler for turning eggs
+  heating_pin: GPIO5
+  cooling_pin: GPIO13
+  #lcd_display: GPIO18, GPIO19, GPIO23, GPI25 GPIO27, GPIO33
+
+
+# free I/O GPIO 0, 5, 
+# free DI GPIO 34, 35, 36, 39
+
+#  fan1_pin: GPIO
+#  battery_pin: GPIO11 
+#  ldr_pin: GPIO35 
+#  left_button_pin: GPIO26 
+#  mid_button_pin: GPIO27 
+#  right_button_pin: GPIO14 
+
+
+
+esphome:
+  name: inkubator-20
+  friendly_name: Inkubator 2.0
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# change microcontroller
+#board_build.mcu = esp32
+
+# change MCU frequency
+#board_build.f_cpu = 240000000L
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "s/QHo/ue6MbFvl0md8G0lhhHffxGmx/+4ygI0yi9oWw="
+
+ota:
+  platform: esphome
+  password: "a331da9bb4eee716270e94b5a4230358"
+  
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Inkubator-20 Fallback Hotspot"
+    password: "DersLgIY4PRm"
+
+captive_portal:
+    
+#Type off egg, (default value)
+#Start temp 38 (default value)
+#Lower temp on day X (default value) to X (default value)
+#Stop turning eggs on day X (default value)
+#Days to hatch X (default value)
+#Start day X (default value)
+#Days left X
+
+#time:
+#  - platform: homeassistant
+#    id: homeassistant_time 
+
+# Enable I2C for SSD1306 OLED display
+i2c:
+  sda: $sda_pin
+  scl: $scl_pin
+# Enable OneWire for DS18B20 temperature sensors
+one_wire:
+  - platform: gpio
+    pin: $dallas_pin
+    #update_interval: 1s
+
+# Alarm output
+output:
+  - platform: ledc
+    pin: $buzzer_pin
+    id: alarm_buzzer
+    frequency: "1000Hz"
+    channel: 0
+
+  - platform: ledc  
+    id: pwm_output
+    pin: $servo_pin
+    frequency: "50 Hz"
+    channel: 2
+    
+# Enable sensors
+sensor:
+
+# Example configuration entry
+#sensor:
+  - platform: esp32_hall
+    name: "ESP32 Hall Sensor"
+    update_interval: 60s
+
+
+
+#WiFi Signal Sensor
+  - platform: wifi_signal
+    name: gateway wifi signal
+    update_interval: 30s
+    unit_of_measurement: "dBa"
+    accuracy_decimals: 0
+
+  - platform: internal_temperature
+    name: "Internal Temperature"
+
+  - platform: dallas_temp
+#    temperature:
+    address: 0x1c0000089c070728  # Replace with your actual sensor address
+    name: "Egg Temperature1"
+    id: "egg_temp"
+    resolution: 12
+  #  dallas_id: egg
+    filters:
+      - offset: 0.4
+#      - multiply: 1.2
+#      - calibrate_linear:
+#          - 0.0 -> 0.0
+#          - 1.0 -> 1.0  # Adjust calibration values as needed
+#          - 21 -> 0.0
+
+
+  - platform: dallas_temp
+    address: 0x2e012213ce4cc528  # Replace with your actual sensor address
+    name: "Egg Temperature2"
+    id: "egg_temp2"
+    resolution: 12
+  #  dallas_id: egg
+    filters:
+      - offset: 1.7
+#      - multiply: 1.2
+#      - calibrate_linear:
+#          - 0.0 -> 0.0
+#          - 1.0 -> 1.0  # Adjust calibration values as needed
+        
+  - platform: dallas_temp
+    address: 0xf100000403764c28  # Replace with your actual sensor address
+    name: "Egg Temperature3"
+    id: "egg_temp3"
+    resolution: 12
+  #  dallas_id: egg
+    filters:
+      - offset: 1.2
+#      - multiply: 1.2
+#      - calibrate_linear:
+#          - 0.0 -> 0.0
+#          - 1.0 -> 1.0  # Adjust calibration values as needed
+              
+
+  - platform: bme280_i2c
+    temperature:
+      name: "Incubator Temperature"
+      id: temp280
+      oversampling: 16x
+      filters:
+        - offset: 1.2
+#        - calibrate_linear:
+#            - 0.0 -> 0.0
+#            - 1.0 -> 1.0  # Adjust calibration values as needed
+    humidity:
+      name: "Incubator Humidity"
+      id: hum280
+      filters:
+#        - calibrate_linear:
+#            - 0.0 -> 0.0
+#            - 1.0 -> 1.0  # Adjust calibration values as needed
+    pressure:
+      name: "Ambient Pressure"
+      id: pres280
+      filters:
+#        - calibrate_linear:
+#            - 0.0 -> 0.0
+#            - 1.0 -> 1.0  # Adjust calibration values as needed
+    address: 0x76
+    update_interval: 1s
+
+  - platform: template
+    name: "Altitude"
+    lambda: |-
+      const float STANDARD_SEA_LEVEL_PRESSURE = 1013.25; //in hPa, see note
+      return ((id(temp280).state + 273.15) / 0.0065) *
+        (powf((STANDARD_SEA_LEVEL_PRESSURE / id(pres280).state), 0.190234) - 1); // in meter
+    update_interval: 15s
+    icon: 'mdi:signal'
+    unit_of_measurement: 'm'
+  - platform: absolute_humidity
+    name: "Absolute Humidity"
+    temperature: temp280
+    humidity: hum280
+  - platform: template
+    name: "Dew Point"
+    lambda: |-
+     return (243.5*(log(id(hum280).state/100)+((17.67*id(temp280).state)/
+     (243.5+id(temp280).state)))/(17.67-log(id(hum280).state/100)-
+     ((17.67*id(temp280).state)/(243.5+id(temp280).state))));
+    unit_of_measurement: °C
+    icon: 'mdi:thermometer-alert'
+      
+# Enable switches
+switch:
+  - platform: gpio
+    pin: $heating_pin
+    name: "Heating Relay"
+    inverted: true
+
+
+  - platform: gpio
+    pin: $cooling_pin
+    name: "Cooling Relay"
+    inverted: true
+
+  #- platform: gpio
+  #  pin: $fan1_pin
+  #  name: "Fan"
+
+servo:
+  - id: my_servo
+    output: pwm_output
+    transition_length: 2.0s
+
+
+
+number:
+  - platform: template
+    name: Servo Control
+    min_value: -100
+    initial_value: 0
+    max_value: 100
+    step: 1
+    optimistic: true
+    on_value:
+      then:
+        - servo.write:
+            id: my_servo
+            level: !lambda 'return x / 100.0;'
+            
+
+
+display:
+  - platform: lcd_gpio
+    dimensions: 16x2
+    data_pins:
+      - GPIO18
+      - GPIO19
+      - GPIO23
+      - GPIO25
+    enable_pin: GPIO27
+    rs_pin: GPIO33
+    lambda: |-
+      it.print("Hello World!");
+
+
