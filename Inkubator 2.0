@@ -221,12 +221,14 @@ switch:
   - platform: gpio
     pin: $heating_pin
     name: "Heating Relay"
+    id: heater
     inverted: true
 
 
   - platform: gpio
     pin: $cooling_pin
     name: "Cooling Relay"
+    id: cooler
     inverted: true
 
   #- platform: gpio
