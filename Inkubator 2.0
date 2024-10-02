@@ -14,7 +14,7 @@ substitutions:
   heating_pin: GPIO5
   cooling_pin: GPIO13
   #lcd_display: GPIO18, GPIO19, GPIO23, GPI25 GPIO27, GPIO33
-
+  #humid_pin: 
 
 # free I/O GPIO 0, 5, 
 # free DI GPIO 34, 35, 36, 39
@@ -185,7 +185,7 @@ sensor:
 #            - 0.0 -> 0.0
 #            - 1.0 -> 1.0  # Adjust calibration values as needed
     pressure:
-      name: "Ambient Pressure"
+      name: "Incubator Pressure"
       id: pres280
       filters:
 #        - calibrate_linear:
@@ -253,7 +253,89 @@ number:
         - servo.write:
             id: my_servo
             level: !lambda 'return x / 100.0;'
-            
+
+
+# This climate controller, on first boot, will switch to "My Startup Preset". Subsequent boots would
+# restore to whatever mode it was in prior to the reboot
+climate:
+  - platform: thermostat
+    name: "From Memory Thermostat"
+    icon: mdi:thermometer-auto
+    sensor: temp280
+    cool_action:
+      - switch.turn_on: cooler
+    heat_action:
+      - switch.turn_on: heater
+    idle_action:
+      - switch.turn_off: cooler
+      - switch.turn_off: heater
+
+    default_preset: My Startup Preset
+    on_boot_restore_from: memory
+    preset:
+      - name: Chicken 0
+        target_temperature: 37
+        fan_mode: OFF
+        swing_mode: OFF
+        mode: OFF
+      # Custom preset
+      - name: Chicken 1
+         target_temperature: 37
+        fan_mode: HIGH
+        mode: HEAT_COOL
+      # Custom preset
+      - name: Duck
+         target_temperature: 37
+        fan_mode: HIGH
+        mode: HEAT_COOL
+      # Custom preset
+      - name: Chicken 2
+         target_temperature: 37
+        fan_mode: HIGH
+        mode: HEAT_COOL
+      # Custom preset
+      - name: Chicken 3
+         target_temperature: 37
+        fan_mode: HIGH
+        mode: HEAT_COOL
+
+- platform: thermostat
+    name: "From Memory Hygrostat"
+    icon: mdi:air-humidifier
+    sensor: hum280
+    dry_action:
+      - switch.turn_on: humidif
+    idle_action:
+      - switch.turn_off: humidif
+
+    default_preset: Chicken 0
+    on_boot_restore_from: memory
+    preset:
+      - name: Chicken 0
+        target_humidity: 50
+        fan_mode: OFF
+        swing_mode: OFF
+        mode: OFF
+      # Custom preset
+      - name: Chicken 1
+        target_humidity: 50
+        fan_mode: HIGH
+        mode: HEAT_COOL
+      # Custom preset
+      - name: Duck
+        target_humidity: 50
+        fan_mode: HIGH
+        mode: HEAT_COOL
+      # Custom preset
+      - name: Chicken 2
+        target_humidity: 50
+        fan_mode: HIGH
+        mode: HEAT_COOL
+      # Custom preset
+      - name: Chicken 3
+        target_humidity: 50
+        fan_mode: HIGH
+        mode: HEAT_COOL
 
 
 display:
