@@ -1,52 +1,21 @@
-substitutions:
-#  name: incubator
-
-#packages:
-#  Bundas77.incubator: github://Bundas77/incubator/incubator.yaml@main
-
-  devicename: incubator
-  
-  buzzer_pin: GPIO16 #alarm
-  dallas_pin: GPIO26 # dalla 18b20 temp one wire
-  scl_pin: GPIO22 
-  sda_pin: GPIO21 
-  servo_pin: GPIO17 #Servo controler for turning eggs
-  heating_pin: GPIO5
-  cooling_pin: GPIO13
-  #lcd_display: GPIO18, GPIO19, GPIO23, GPI25 GPIO27, GPIO33
-  #humid_pin: 
-
-# free I/O GPIO 0, 5, 
-# free DI GPIO 34, 35, 36, 39
-
-#  fan1_pin: GPIO
-#  battery_pin: GPIO11 
-#  ldr_pin: GPIO35 
-#  left_button_pin: GPIO26 
-#  mid_button_pin: GPIO27 
-#  right_button_pin: GPIO14 
-
-
-
 esphome:
-  name: inkubator-20
-  friendly_name: Inkubator 2.0
+  name: inkubator-s3
+  friendly_name: "Smart Egg Incubator S3"
+  on_boot:
+    priority: -100
+    then:
+      - lambda: 'id(is_booting) = true;'
+      - delay: 4s
+      - lambda: 'id(is_booting) = false;'
 
 esp32:
-  board: esp32dev
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
   framework:
     type: arduino
 
-# change microcontroller
-#board_build.mcu = esp32
-
-# change MCU frequency
-#board_build.f_cpu = 240000000L
-
-# Enable logging
 logger:
 
-# Enable Home Assistant API
 api:
   encryption:
     key: "s/QHo/ue6MbFvl0md8G0lhhHffxGmx/+4ygI0yi9oWw="
@@ -54,303 +23,407 @@ api:
 ota:
   platform: esphome
   password: "a331da9bb4eee716270e94b5a4230358"
-  
+
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
 
-  # Enable fallback hotspot (captive portal) in case wifi connection fails
-  ap:
-    ssid: "Inkubator-20 Fallback Hotspot"
-    password: "DersLgIY4PRm"
+# --- NTP TIME SYNCHRONIZATION & AUTOMATED LOCKDOWN HUMIDITY ---
+time:
+  - platform: sntp
+    id: ntp_time
+    timezone: "Europe/Budapest"
+    servers:
+      - 0.pool.ntp.org
+      - 1.pool.ntp.org
+      - 2.pool.ntp.org
+    on_time:
+      - cron: 0 0 0 * * *
+        then:
+          - lambda: |-
+              id(incubation_day) += 1;
+              ESP_LOGI("main", "New incubation day started! Current day: %d", id(incubation_day));
+              
+              int stop_turning_day = id(total_incubation_days) - id(stop_turning_days_before);
+              
+              if (id(incubation_day) >= stop_turning_day) {
+                id(target_humidity).publish_state(68.0);
+                ESP_LOGI("main", "Lockdown phase: Turning disabled, target humidity raised to 68%.");
+              } else {
+                id(target_humidity).publish_state(55.0);
+              }
 
-captive_portal:
-    
-#Type off egg, (default value)
-#Start temp 38 (default value)
-#Lower temp on day X (default value) to X (default value)
-#Stop turning eggs on day X (default value)
-#Days to hatch X (default value)
-#Start day X (default value)
-#Days left X
-
-#time:
-#  - platform: homeassistant
-#    id: homeassistant_time 
-
-# Enable I2C for SSD1306 OLED display
+# --- I2C BUS (20x4 LCD & BME280) ---
 i2c:
-  sda: $sda_pin
-  scl: $scl_pin
+  sda: GPIO8
+  scl: GPIO9
+  scan: true
 
-# Enable OneWire for DS18B20 temperature sensors
 one_wire:
   - platform: gpio
-    pin: $dallas_pin
-    #update_interval: 1s
+    pin: GPIO4
 
-# Alarm output
+# --- IBT-2 PELTIE & BUZZER OUTPUTS ---
 output:
   - platform: ledc
-    pin: $buzzer_pin
+    pin: GPIO5
+    id: ibt2_heating_pwm
+    frequency: 10Hz
+
+  - platform: ledc
+    pin: GPIO6
+    id: ibt2_cooling_pwm
+    frequency: 10Hz
+
+  - platform: ledc
+    pin: GPIO16
     id: alarm_buzzer
     frequency: "1000Hz"
     channel: 0
 
-  - platform: ledc  
-    id: pwm_output
-    pin: $servo_pin
-    frequency: "50 Hz"
-    channel: 2
-    
-# Enable sensors
+# --- PID TEMPERATURE CONTROL ---
+climate:
+  - platform: pid
+    id: incubator_pid
+    name: "Incubator Peltier PID"
+    sensor: avg_egg_temp
+    default_target_temperature: 37.8
+    heat_output: ibt2_heating_pwm
+    cool_output: ibt2_cooling_pwm
+    control_parameters:
+      kp: 30.0
+      ki: 0.05
+      kd: 120.0
+
+# --- RELAYS ---
+switch:
+  - platform: gpio
+    pin: GPIO7
+    name: "Ventilation Fan"
+    id: vent_fan
+
+  - platform: gpio
+    pin: GPIO12
+    name: "Humidifier Relay"
+    id: humidif
+
+  - platform: gpio
+    pin: GPIO17
+    name: "Egg Turner 12V Motor"
+    id: egg_turner_motor
+
+# --- GLOBAL VARIABLES FOR MENU & TIMING ---
+globals:
+  - id: incubation_day
+    type: int
+    restore_value: yes
+    initial_value: '0'
+  - id: total_incubation_days
+    type: int
+    restore_value: yes
+    initial_value: '21'
+  - id: stop_turning_days_before
+    type: int
+    restore_value: yes
+    initial_value: '3'
+  - id: is_booting
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+  - id: alarm_muted
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: menu_state
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+# --- ROTARY ENCODER (Menu Control) ---
 sensor:
+  - platform: rotary_encoder
+    name: "Menu Encoder"
+    id: menu_encoder
+    pin_a: GPIO10
+    pin_b: GPIO11
+    resolution: 2
+    on_clockwise:
+      - lambda: |-
+          if (id(menu_state) == 1) {
+            float t = id(incubator_pid).target_temperature + 0.1;
+            auto call = id(incubator_pid).make_call();
+            call.set_target_temperature(t);
+            call.perform();
+          } else if (id(menu_state) == 2) {
+            float h = id(target_humidity).state + 1;
+            if (h > 80) h = 80;
+            id(target_humidity).publish_state(h);
+          } else if (id(menu_state) == 3) {
+            id(incubation_day) += 1;
+          } else if (id(menu_state) == 4) {
+            id(total_incubation_days) += 1;
+          } else if (id(menu_state) == 5) {
+            id(stop_turning_days_before) += 1;
+          } else if (id(menu_state) >= 6) {
+            id(menu_state) = 1;
+          }
+    on_anticlockwise:
+      - lambda: |-
+          if (id(menu_state) == 1) {
+            float t = id(incubator_pid).target_temperature - 0.1;
+            auto call = id(incubator_pid).make_call();
+            call.set_target_temperature(t);
+            call.perform();
+          } else if (id(menu_state) == 2) {
+            float h = id(target_humidity).state - 1;
+            if (h < 40) h = 40;
+            id(target_humidity).publish_state(h);
+          } else if (id(menu_state) == 3) {
+            if (id(incubation_day) > 0) id(incubation_day) -= 1;
+          } else if (id(menu_state) == 4) {
+            if (id(total_incubation_days) > 1) id(total_incubation_days) -= 1;
+          } else if (id(menu_state) == 5) {
+            if (id(stop_turning_days_before) > 0) id(stop_turning_days_before) -= 1;
+          } else if (id(menu_state) == 0) {
+            id(menu_state) = 6;
+          }
 
-# Example configuration entry
-#sensor:
-  - platform: esp32_hall
-    name: "ESP32 Hall Sensor"
-    update_interval: 60s
-
-
-
-#WiFi Signal Sensor
-  - platform: wifi_signal
-    name: gateway wifi signal
-    update_interval: 30s
-    unit_of_measurement: "dBa"
-    accuracy_decimals: 0
-
-  - platform: internal_temperature
-    name: "Internal Temperature"
+  - platform: template
+    name: "Average Egg Temp"
+    id: avg_egg_temp
+    unit_of_measurement: "°C"
+    accuracy_decimals: 2
+    update_interval: 5s
+    lambda: |-
+      return (id(egg_temp1).state + id(egg_temp2).state + id(egg_temp3).state) / 3.0;
 
   - platform: dallas_temp
-#    temperature:
-    address: 0x1c0000089c070728  # Replace with your actual sensor address
-    name: "Egg Temperature1"
-    id: "egg_temp"
-    resolution: 12
-  #  dallas_id: egg
-    filters:
-      - offset: 0.4
-#      - multiply: 1.2
-#      - calibrate_linear:
-#          - 0.0 -> 0.0
-#          - 1.0 -> 1.0  # Adjust calibration values as needed
-#          - 21 -> 0.0
-
-
+    address: 0x1c0000089c070728
+    id: egg_temp1
   - platform: dallas_temp
-    address: 0x2e012213ce4cc528  # Replace with your actual sensor address
-    name: "Egg Temperature2"
-    id: "egg_temp2"
-    resolution: 12
-  #  dallas_id: egg
-    filters:
-      - offset: 1.7
-#      - multiply: 1.2
-#      - calibrate_linear:
-#          - 0.0 -> 0.0
-#          - 1.0 -> 1.0  # Adjust calibration values as needed
-        
+    address: 0x2e012213ce4cc528
+    id: egg_temp2
   - platform: dallas_temp
-    address: 0xf100000403764c28  # Replace with your actual sensor address
-    name: "Egg Temperature3"
-    id: "egg_temp3"
-    resolution: 12
-  #  dallas_id: egg
-    filters:
-      - offset: 1.2
-#      - multiply: 1.2
-#      - calibrate_linear:
-#          - 0.0 -> 0.0
-#          - 1.0 -> 1.0  # Adjust calibration values as needed
-              
+    address: 0xf100000403764c28
+    id: egg_temp3
 
   - platform: bme280_i2c
     temperature:
-      name: "Incubator Temperature"
+      name: "Incubator Ambient Temp"
       id: temp280
-      oversampling: 16x
-      filters:
-        - offset: 1.2
-#        - calibrate_linear:
-#            - 0.0 -> 0.0
-#            - 1.0 -> 1.0  # Adjust calibration values as needed
     humidity:
       name: "Incubator Humidity"
       id: hum280
-      filters:
-#        - calibrate_linear:
-#            - 0.0 -> 0.0
-#            - 1.0 -> 1.0  # Adjust calibration values as needed
     pressure:
       name: "Incubator Pressure"
-      id: pres280
-      filters:
-#        - calibrate_linear:
-#            - 0.0 -> 0.0
-#            - 1.0 -> 1.0  # Adjust calibration values as needed
+      id: pressure280
     address: 0x76
-    update_interval: 1s
+    update_interval: 5s
 
   - platform: template
-    name: "Altitude"
-    lambda: |-
-      const float STANDARD_SEA_LEVEL_PRESSURE = 1013.25; //in hPa, see note
-      return ((id(temp280).state + 273.15) / 0.0065) *
-        (powf((STANDARD_SEA_LEVEL_PRESSURE / id(pres280).state), 0.190234) - 1); // in meter
-    update_interval: 15s
-    icon: 'mdi:signal'
-    unit_of_measurement: 'm'
-  - platform: absolute_humidity
     name: "Absolute Humidity"
-    temperature: temp280
-    humidity: hum280
-  - platform: template
-    name: "Dew Point"
+    id: abs_humidity
+    unit_of_measurement: "g/m³"
+    accuracy_decimals: 1
+    update_interval: 5s
     lambda: |-
-     return (243.5*(log(id(hum280).state/100)+((17.67*id(temp280).state)/
-     (243.5+id(temp280).state)))/(17.67-log(id(hum280).state/100)-
-     ((17.67*id(temp280).state)/(243.5+id(temp280).state))));
-    unit_of_measurement: °C
-    icon: 'mdi:thermometer-alert'
-      
-# Enable switches
-switch:
+      float temp = id(temp280).state;
+      float hum = id(hum280).state;
+      if (std::isnan(temp) || std::isnan(hum)) return 0.0;
+      return (6.112 * exp((17.67 * temp) / (temp + 243.5)) * hum * 2.1674) / (273.15 + temp);
+
+# --- ENCODER PUSH BUTTON ---
+binary_sensor:
   - platform: gpio
-    pin: $heating_pin
-    name: "Heating Relay"
-    id: heater
-    inverted: true
+    pin:
+      number: GPIO13
+      inverted: true
+    name: "Encoder Button"
+    on_press:
+      - lambda: |-
+          if (id(play_alarm_beep).is_running()) {
+            id(alarm_muted) = true;
+            id(play_alarm_beep).stop();
+            id(alarm_buzzer).turn_off();
+            return;
+          }
+          
+          id(menu_state) += 1;
+          if (id(menu_state) > 6) {
+            id(menu_state) = 0;
+          }
 
-
-  - platform: gpio
-    pin: $cooling_pin
-    name: "Cooling Relay"
-    id: cooler
-    inverted: true
-
-  #- platform: gpio
-  #  pin: $fan1_pin
-  #  name: "Fan"
-
-servo:
-  - id: my_servo
-    output: pwm_output
-    transition_length: 2.0s
-
-
-
+# --- TARGET HUMIDITY NUMBER COMPONENT ---
 number:
   - platform: template
-    name: Servo Control
-    min_value: -100
-    initial_value: 0
-    max_value: 100
-    step: 1
+    name: "Target Humidity"
+    id: target_humidity
     optimistic: true
-    on_value:
-      then:
-        - servo.write:
-            id: my_servo
-            level: !lambda 'return x / 100.0;'
+    min_value: 40
+    max_value: 80
+    step: 1
+    initial_value: 55
+    restore_value: true
 
+# --- HOME ASSISTANT ACTION BUTTONS ---
+button:
+  - platform: template
+    name: "Reset Incubation Days"
+    icon: "mdi:restart"
+    on_press:
+      - lambda: |-
+          id(incubation_day) = 0;
+          id(target_humidity).publish_state(55.0);
+      - logger.log: "Incubation days reset!"
 
-# This climate controller, on first boot, will switch to "My Startup Preset". Subsequent boots would
-# restore to whatever mode it was in prior to the reboot
-climate:
-  - platform: thermostat
-    name: "From Memory Thermostat"
-    icon: mdi:thermometer-auto
-    sensor: temp280
-    cool_action:
-      - switch.turn_on: cooler
-    heat_action:
-      - switch.turn_on: heater
-    idle_action:
-      - switch.turn_off: cooler
-      - switch.turn_off: heater
+  - platform: template
+    name: "Mute Alarm"
+    icon: "mdi:volume-off"
+    on_press:
+      - lambda: 'id(alarm_muted) = true;'
+      - script.stop: play_alarm_beep
+      - output.turn_off: alarm_buzzer
 
-    default_preset: My Startup Preset
-    on_boot_restore_from: memory
-    preset:
-      - name: Chicken 0
-        target_temperature: 37
-        fan_mode: OFF
-        swing_mode: OFF
-        mode: OFF
-      # Custom preset
-      - name: Chicken 1
-         target_temperature: 37
-        fan_mode: HIGH
-        mode: HEAT_COOL
-      # Custom preset
-      - name: Duck
-         target_temperature: 37
-        fan_mode: HIGH
-        mode: HEAT_COOL
-      # Custom preset
-      - name: Chicken 2
-         target_temperature: 37
-        fan_mode: HIGH
-        mode: HEAT_COOL
-      # Custom preset
-      - name: Chicken 3
-         target_temperature: 37
-        fan_mode: HIGH
-        mode: HEAT_COOL
+  - platform: template
+    name: "Start PID Autotune"
+    icon: "mdi:tune"
+    on_press:
+      - climate.pid.autotune: incubator_pid
 
-- platform: thermostat
-    name: "From Memory Hygrostat"
-    icon: mdi:air-humidifier
-    sensor: hum280
-    dry_action:
-      - switch.turn_on: humidif
-    idle_action:
-      - switch.turn_off: humidif
+# --- ALARM SCRIPT ---
+script:
+  - id: play_alarm_beep
+    mode: restart
+    then:
+      - while:
+          condition:
+            lambda: 'return true;'
+          then:
+            - output.turn_on: alarm_buzzer
+            - output.set_level: { id: alarm_buzzer, level: 50% }
+            - delay: 500ms
+            - output.turn_off: alarm_buzzer
+            - delay: 500ms
 
-    default_preset: Chicken 0
-    on_boot_restore_from: memory
-    preset:
-      - name: Chicken 0
-        target_humidity: 50
-        fan_mode: OFF
-        swing_mode: OFF
-        mode: OFF
-      # Custom preset
-      - name: Chicken 1
-        target_humidity: 50
-        fan_mode: HIGH
-        mode: HEAT_COOL
-      # Custom preset
-      - name: Duck
-        target_humidity: 50
-        fan_mode: HIGH
-        mode: HEAT_COOL
-      # Custom preset
-      - name: Chicken 2
-        target_humidity: 50
-        fan_mode: HIGH
-        mode: HEAT_COOL
-      # Custom preset
-      - name: Chicken 3
-        target_humidity: 50
-        fan_mode: HIGH
-        mode: HEAT_COOL
+# --- AUTOMATIONS & INTERVALS ---
+interval:
+  - interval: 2h
+    then:
+      - lambda: |-
+          int stop_turning_day = id(total_incubation_days) - id(stop_turning_days_before);
+          if (id(incubation_day) < stop_turning_day) {
+            id(egg_turner_motor).turn_on();
+          }
+      - delay: 15s
+      - switch.turn_off: egg_turner_motor
 
+  - interval: 30min
+    then:
+      - switch.turn_on: vent_fan
+      - delay: 15s
+      - if:
+          condition:
+            lambda: 'return id(avg_egg_temp).state <= 38.5;'
+          then:
+            - switch.turn_off: vent_fan
 
+  - interval: 5s
+    then:
+      - if:
+          condition:
+            lambda: 'return id(hum280).state < id(target_humidity).state;'
+          then:
+            - switch.turn_on: humidif
+          else:
+            - switch.turn_off: humidif
+
+      - lambda: |-
+          bool alarm_temp = id(avg_egg_temp).state > 38.5;
+          bool alarm_hum = id(hum280).state < (id(target_humidity).state - 10.0);
+          bool alarm_sensor = std::isnan(id(avg_egg_temp).state) || std::isnan(id(hum280).state);
+          
+          if (alarm_temp || alarm_hum || alarm_sensor) {
+            if (alarm_temp) { id(vent_fan).turn_on(); }
+            if (!id(alarm_muted) && !id(play_alarm_beep).is_running()) {
+              id(play_alarm_beep).execute();
+            }
+          } 
+          else {
+            id(vent_fan).turn_off();
+            id(alarm_muted) = false;
+            id(play_alarm_beep).stop();
+            id(alarm_buzzer).turn_off();
+          }
+
+# --- 2004A (20x4) LCD DISPLAY & LOCAL MENU INTERFACE ---
 display:
-  - platform: lcd_gpio
-    dimensions: 16x2
-    data_pins:
-      - GPIO18
-      - GPIO19
-      - GPIO23
-      - GPIO25
-    enable_pin: GPIO27
-    rs_pin: GPIO33
+  - platform: lcd_pcf8574
+    dimensions: 20x4
+    address: 0x27
     lambda: |-
-      it.print("Hello World!");
-
-
+      bool alarm_temp = id(avg_egg_temp).state > 38.5;
+      bool alarm_hum = id(hum280).state < (id(target_humidity).state - 10.0);
+      bool alarm_sensor = std::isnan(id(avg_egg_temp).state) || std::isnan(id(hum280).state);
+      
+      if (id(is_booting)) {
+        it.print(0, 0, "   SMART EGG       ");
+        it.print(0, 1, "   INCUBATOR S3    ");
+        it.print(0, 2, " System booting... ");
+        it.print(0, 3, " Please wait     ");
+      } 
+      else if (alarm_temp || alarm_hum || alarm_sensor) {
+        it.print(0, 0, "********************");
+        it.print(0, 1, " !!! WARNING!   ");
+        if (alarm_sensor) {
+          it.print(0, 2, " ERR: Sensor fault! ");
+        } else if (alarm_temp) {
+          it.print(0, 2, " ERR: Overheating!  ");
+        } else if (alarm_hum) {
+          it.print(0, 2, " ERR: Low Humidity  ");
+        }
+        it.print(0, 3, "********************");
+      } 
+      else {
+        // --- LOCAL MENU MODE ---
+        if (id(menu_state) > 0) {
+          it.print(0, 0, "-- LOCAL SETTINGS --");
+          
+          if (id(menu_state) == 1) {
+            it.printf(0, 1, "> Target Temp:      ");
+            it.printf(0, 2, "  [ %.1f C ]        ", id(incubator_pid).target_temperature);
+          } else if (id(menu_state) == 2) {
+            it.printf(0, 1, "> Target Humidity:  ");
+            it.printf(0, 2, "  [ %.0f %% ]        ", id(target_humidity).state);
+          } else if (id(menu_state) == 3) {
+            it.printf(0, 1, "> Current Day:      ");
+            it.printf(0, 2, "  [ DAY %d ]        ", id(incubation_day));
+          } else if (id(menu_state) == 4) {
+            it.printf(0, 1, "> Total Days (e.g21):");
+            it.printf(0, 2, "  [ %d DAYS ]       ", id(total_incubation_days));
+          } else if (id(menu_state) == 5) {
+            it.printf(0, 1, "> Stop Turn Before:");
+            it.printf(0, 2, "  [ -%d DAYS ]      ", id(stop_turning_days_before));
+          } else if (id(menu_state) == 6) {
+            it.printf(0, 1, "> Save & Exit       ");
+            it.printf(0, 2, "  [ Click Button ]  ");
+          }
+          it.print(0, 3, "Turn=Change, Btn=Ok");
+        } 
+        else {
+          // --- STANDARD MAIN HOME SCREEN ---
+          it.printf(0, 0, "T:%.2fC H:%.0f%% P:%.0f", id(avg_egg_temp).state, id(hum280).state, id(pressure280).state);
+          
+          int stop_day = id(total_incubation_days) - id(stop_turning_days_before);
+          int remaining_days = id(total_incubation_days) - id(incubation_day);
+          if (remaining_days < 0) remaining_days = 0;
+          
+          if (id(incubation_day) >= stop_day) {
+            it.printf(0, 1, "Day:%d/%d [LOCKDOWN]", id(incubation_day), id(total_incubation_days));
+          } else {
+            it.printf(0, 1, "Day:%d/%d Rem:%dd", id(incubation_day), id(total_incubation_days), remaining_days);
+          }
+          
+          it.printf(0, 2, "AbsP:%.1fg CelT:%.1f", id(abs_humidity).state, id(incubator_pid).target_temperature);
+          it.printf(0, 3, "PID:%.0f%% CelH:%.0f%%V:%s", id(ibt2_heating_pwm).state * 100, id(target_humidity).state, id(vent_fan).state ? "ON" : "OFF");
+        }
+      }
