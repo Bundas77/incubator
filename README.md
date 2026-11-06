@@ -133,3 +133,41 @@ Note: Pressing the button during any active acoustic alarm instantly mutes the b
 | **Acoustics** | Passive Piezo Buzzer (GPIO16) | 1000 Hz acoustic alarm device for fault conditions.
 
  |
+Íme egy részletes, áttekintő angol nyelvű kapcsolási rajz és vezetékezési leírás (Wiring Diagram & Schematic Guide) a GitHub repóhoz, amely pontosan tartalmazza az ESP32-S3 lábkiosztást és az összes periféria csatlakozását.
+
+---
+
+# ESP32-S3 Smart Egg Incubator - Wiring & Schematic Guide
+
+## 1. Microcontroller & Core Board
+
+* **MCU:** ESP32-S3 N16R8 (DevKitC)
+* **Terminal Base:** MRD076A Screw Terminal Adapter (used for secure, vibration-resistant connections)
+
+---
+
+## 2. Pinout & Peripheral Connections Table
+
+| Component / Peripheral | Model / Type | ESP32-S3 Pin / Interface | Notes & Power Connections |
+| --- | --- | --- | --- |
+| **I2C Bus (LCD & BME280)** | 2004A LCD (I2C) & BME280 | **SDA: GPIO8**, **SCL: GPIO9** | Powered by 5V (LCD) / 3.3V (BME280), with built-in pull-ups. |
+| **1-Wire Sensors** | 3x DS18B20 Waterproof Probes | **GPIO4** | Data line connected to GPIO4 with a 4.7kΩ pull-up resistor to 3.3V. Probes wired in parallel. |
+| **Peltier Heating/Cooling** | IBT-2 (BTS7960) H-Bridge | **RPWM: GPIO5**, **LPWM: GPIO6** | Slow PWM (10 Hz). Powered directly from 12V ATX PSU. |
+| **Ventilation Fan** | 12V DC Fan | **GPIO7** (via Relay Channel 1) | Controlled via Sainsmart 5V Relay Module. |
+| **Humidifier** | USB / 5V Ultrasonic Atomizer | **GPIO12** (via Relay Channel 2) | Controlled via Sainsmart 5V Relay Module (5V rail). |
+| **Egg Turner Motor** | 12V DC Geared Motor (2.5-5 RPM) | **GPIO17** (via Relay Channel 3) | Controlled via Sainsmart 5V Relay Module (12V rail). |
+| **Alarm Buzzer** | Passive Piezo Buzzer | **GPIO16** | Driven by LEDC PWM channel (1000 Hz). |
+| **Rotary Encoder** | KY-040 Type (CLK, DT, SW) | **CLK: GPIO10**, **DT: GPIO11**, **SW: GPIO13** | Used for local menu navigation and parameter adjustments. SW pulled low on press. |
+
+---
+
+## 3. Power Distribution & Safety Interlocks
+
+* **Primary Power Supply:** 700W ATX PC Power Supply connected to an **ATX Breakout Board**.
+* **12V Rail:** Powers the IBT-2 H-Bridge (Peltier elements), 12V DC turning motor, and ventilation fans.
+* **5V Rail:** Powers the ESP32-S3 board, 5V relay module, 2004 LCD display, and the USB ultrasonic atomizer module.
+
+
+* **Safety & Hardware Interlock Chain:**
+* **15A Fuse:** Installed on the main 12V incoming power line.
+* **KSD301 40°C NC Klixon (Thermal Switch):** Wired physically in series with the 12V power supply to the Peltier heating circuit. If the enclosure temperature exceeds 40°C, it physically cuts power independently of software.
