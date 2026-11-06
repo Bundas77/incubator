@@ -132,8 +132,7 @@ Note: Pressing the button during any active acoustic alarm instantly mutes the b
  |
 | **Acoustics** | Passive Piezo Buzzer (GPIO16) | 1000 Hz acoustic alarm device for fault conditions.
 
- |
-Íme egy részletes, áttekintő angol nyelvű kapcsolási rajz és vezetékezési leírás (Wiring Diagram & Schematic Guide) a GitHub repóhoz, amely pontosan tartalmazza az ESP32-S3 lábkiosztást és az összes periféria csatlakozását.
+
 
 ---
 
