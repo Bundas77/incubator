@@ -1,12 +1,13 @@
 esphome:
-  name: inkubator-s3
+  name: poultry_incubator
   friendly_name: "Smart Egg Incubator S3"
   on_boot:
     priority: -100
     then:
-      - lambda: 'id(is_booting) = true;'
-      - delay: 4s
-      - lambda: 'id(is_booting) = false;'
+      - lambda: |-
+          id(is_booting) = true;
+          delay(4000);
+          id(is_booting) = false;
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -32,7 +33,7 @@ wifi:
 time:
   - platform: sntp
     id: ntp_time
-    timezone: "Europe/Budapest"
+    timezone: "Europe/Stockholm"
     servers:
       - 0.pool.ntp.org
       - 1.pool.ntp.org
@@ -43,9 +44,7 @@ time:
           - lambda: |-
               id(incubation_day) += 1;
               ESP_LOGI("main", "New incubation day started! Current day: %d", id(incubation_day));
-              
               int stop_turning_day = id(total_incubation_days) - id(stop_turning_days_before);
-              
               if (id(incubation_day) >= stop_turning_day) {
                 id(target_humidity).publish_state(68.0);
                 ESP_LOGI("main", "Lockdown phase: Turning disabled, target humidity raised to 68%.");
@@ -63,7 +62,7 @@ one_wire:
   - platform: gpio
     pin: GPIO4
 
-# --- IBT-2 PELTIE & BUZZER OUTPUTS ---
+# --- IBT-2 PELTIER & BUZZER OUTPUTS ---
 output:
   - platform: ledc
     pin: GPIO5
@@ -112,7 +111,7 @@ switch:
     name: "Egg Turner 12V Motor"
     id: egg_turner_motor
 
-# --- GLOBAL VARIABLES FOR MENU & TIMING ---
+# --- GLOBAL VARIABLES FOR MENU & MULTILANGUAGE ---
 globals:
   - id: incubation_day
     type: int
@@ -126,6 +125,10 @@ globals:
     type: int
     restore_value: yes
     initial_value: '3'
+  - id: language_id
+    type: int
+    restore_value: yes
+    initial_value: '0'
   - id: is_booting
     type: bool
     restore_value: no
@@ -164,7 +167,10 @@ sensor:
             id(total_incubation_days) += 1;
           } else if (id(menu_state) == 5) {
             id(stop_turning_days_before) += 1;
-          } else if (id(menu_state) >= 6) {
+          } else if (id(menu_state) == 6) {
+            id(language_id) += 1;
+            if (id(language_id) > 2) id(language_id) = 0;
+          } else if (id(menu_state) >= 7) {
             id(menu_state) = 1;
           }
     on_anticlockwise:
@@ -184,8 +190,11 @@ sensor:
             if (id(total_incubation_days) > 1) id(total_incubation_days) -= 1;
           } else if (id(menu_state) == 5) {
             if (id(stop_turning_days_before) > 0) id(stop_turning_days_before) -= 1;
+          } else if (id(menu_state) == 6) {
+            id(language_id) -= 1;
+            if (id(language_id) < 0) id(language_id) = 2;
           } else if (id(menu_state) == 0) {
-            id(menu_state) = 6;
+            id(menu_state) = 7;
           }
 
   - platform: template
@@ -247,9 +256,8 @@ binary_sensor:
             id(alarm_buzzer).turn_off();
             return;
           }
-          
           id(menu_state) += 1;
-          if (id(menu_state) > 6) {
+          if (id(menu_state) > 7) {
             id(menu_state) = 0;
           }
 
@@ -280,7 +288,8 @@ button:
     name: "Mute Alarm"
     icon: "mdi:volume-off"
     on_press:
-      - lambda: 'id(alarm_muted) = true;'
+      - lambda: |-
+          id(alarm_muted) = true;
       - script.stop: play_alarm_beep
       - output.turn_off: alarm_buzzer
 
@@ -300,7 +309,9 @@ script:
             lambda: 'return true;'
           then:
             - output.turn_on: alarm_buzzer
-            - output.set_level: { id: alarm_buzzer, level: 50% }
+            - output.set_level:
+                id: alarm_buzzer
+                level: 50%
             - delay: 500ms
             - output.turn_off: alarm_buzzer
             - delay: 500ms
@@ -341,21 +352,19 @@ interval:
           bool alarm_temp = id(avg_egg_temp).state > 38.5;
           bool alarm_hum = id(hum280).state < (id(target_humidity).state - 10.0);
           bool alarm_sensor = std::isnan(id(avg_egg_temp).state) || std::isnan(id(hum280).state);
-          
           if (alarm_temp || alarm_hum || alarm_sensor) {
             if (alarm_temp) { id(vent_fan).turn_on(); }
             if (!id(alarm_muted) && !id(play_alarm_beep).is_running()) {
               id(play_alarm_beep).execute();
             }
-          } 
-          else {
+          } else {
             id(vent_fan).turn_off();
             id(alarm_muted) = false;
             id(play_alarm_beep).stop();
             id(alarm_buzzer).turn_off();
           }
 
-# --- 2004A (20x4) LCD DISPLAY & LOCAL MENU INTERFACE ---
+# --- 2004A (20x4) LCD DISPLAY & MULTILANGUAGE LOCAL MENU ---
 display:
   - platform: lcd_pcf8574
     dimensions: 20x4
@@ -364,6 +373,7 @@ display:
       bool alarm_temp = id(avg_egg_temp).state > 38.5;
       bool alarm_hum = id(hum280).state < (id(target_humidity).state - 10.0);
       bool alarm_sensor = std::isnan(id(avg_egg_temp).state) || std::isnan(id(hum280).state);
+      int lang = id(language_id);
       
       if (id(is_booting)) {
         it.print(0, 0, "   SMART EGG       ");
@@ -384,46 +394,42 @@ display:
         it.print(0, 3, "********************");
       } 
       else {
-        // --- LOCAL MENU MODE ---
         if (id(menu_state) > 0) {
-          it.print(0, 0, "-- LOCAL SETTINGS --");
+          if (lang == 0) it.print(0, 0, "-- LOCAL SETTINGS --");
+          else if (lang == 1) it.print(0, 0, "-- HELYI BEALLITAS--");
+          else if (lang == 2) it.print(0, 0, "-- LOKALA INSTALL --");
           
           if (id(menu_state) == 1) {
-            it.printf(0, 1, "> Target Temp:      ");
+            if (lang == 0) { it.print(0, 1, "> Target Temp:      "); }
+            else if (lang == 1) { it.print(0, 1, "> Celhomerseklet:   "); }
+            else if (lang == 2) { it.print(0, 1, "> Malortemp:        "); }
             it.printf(0, 2, "  [ %.1f C ]        ", id(incubator_pid).target_temperature);
-          } else if (id(menu_state) == 2) {
-            it.printf(0, 1, "> Target Humidity:  ");
+          } 
+          else if (id(menu_state) == 2) {
+            if (lang == 0) { it.print(0, 1, "> Target Humidity:  "); }
+            else if (lang == 1) { it.print(0, 1, "> Celparatartalom:  "); }
+            else if (lang == 2) { it.print(0, 1, "> Malor Luftfukt:   "); }
             it.printf(0, 2, "  [ %.0f %% ]        ", id(target_humidity).state);
-          } else if (id(menu_state) == 3) {
-            it.printf(0, 1, "> Current Day:      ");
+          } 
+          else if (id(menu_state) == 3) {
+            if (lang == 0) { it.print(0, 1, "> Current Day:      "); }
+            else if (lang == 1) { it.print(0, 1, "> Aktualis nap:     "); }
+            else if (lang == 2) { it.print(0, 1, "> Aktuell dag:      "); }
             it.printf(0, 2, "  [ DAY %d ]        ", id(incubation_day));
-          } else if (id(menu_state) == 4) {
-            it.printf(0, 1, "> Total Days (e.g21):");
+          } 
+          else if (id(menu_state) == 4) {
+            if (lang == 0) { it.print(0, 1, "> Total Days:       "); }
+            else if (lang == 1) { it.print(0, 1, "> Osszes nap (21):  "); }
+            else if (lang == 2) { it.print(0, 1, "> Totalt antal dagar:"); }
             it.printf(0, 2, "  [ %d DAYS ]       ", id(total_incubation_days));
-          } else if (id(menu_state) == 5) {
-            it.printf(0, 1, "> Stop Turn Before:");
+          } 
+          else if (id(menu_state) == 5) {
+            if (lang == 0) { it.print(0, 1, "> Stop Turning Before:"); }
+            else if (lang == 1) { it.print(0, 1, "> Forgatas tiltas elott:"); }
+            else if (lang == 2) { it.print(0, 1, "> Stoppa vandring fore:"); }
             it.printf(0, 2, "  [ -%d DAYS ]      ", id(stop_turning_days_before));
-          } else if (id(menu_state) == 6) {
-            it.printf(0, 1, "> Save & Exit       ");
-            it.printf(0, 2, "  [ Click Button ]  ");
-          }
-          it.print(0, 3, "Turn=Change, Btn=Ok");
-        } 
-        else {
-          // --- STANDARD MAIN HOME SCREEN ---
-          it.printf(0, 0, "T:%.2fC H:%.0f%% P:%.0f", id(avg_egg_temp).state, id(hum280).state, id(pressure280).state);
-          
-          int stop_day = id(total_incubation_days) - id(stop_turning_days_before);
-          int remaining_days = id(total_incubation_days) - id(incubation_day);
-          if (remaining_days < 0) remaining_days = 0;
-          
-          if (id(incubation_day) >= stop_day) {
-            it.printf(0, 1, "Day:%d/%d [LOCKDOWN]", id(incubation_day), id(total_incubation_days));
-          } else {
-            it.printf(0, 1, "Day:%d/%d Rem:%dd", id(incubation_day), id(total_incubation_days), remaining_days);
-          }
-          
-          it.printf(0, 2, "AbsP:%.1fg CelT:%.1f", id(abs_humidity).state, id(incubator_pid).target_temperature);
-          it.printf(0, 3, "PID:%.0f%% CelH:%.0f%%V:%s", id(ibt2_heating_pwm).state * 100, id(target_humidity).state, id(vent_fan).state ? "ON" : "OFF");
-        }
-      }
+          } 
+          else if (id(menu_state) == 6) {
+            if (lang == 0) { it.print(0, 1, "> Language / Nyelv: "); }
+            else if (lang == 1) { it.print(0, 1, "> Nyelv / Language: "); }
+            else if (lang == 2) { it.print(0
